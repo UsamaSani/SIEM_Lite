@@ -266,17 +266,6 @@ sqlite3 demo.db "SELECT * FROM alerts;"
 cat demo.csv | column -t -s,
 ```
 
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Ensure all tests pass: `pytest tests/`
-5. Submit a pull request
-
-## License
-
-MIT License - see LICENSE file for details.
 
 ## Future Work
 
@@ -288,3 +277,6 @@ MIT License - see LICENSE file for details.
 - [ ] Kubernetes deployment manifests
 
 
+## License
+
+MIT License - see LICENSE file for details.

@@ -21,7 +21,7 @@ shutdown_event = Event()
 
 def signal_handler(signum, frame):
     """Handle SIGINT (Ctrl+C) gracefully."""
-    print("\\n🛑 Shutdown signal received. Flushing queues...")
+    print("\n🛑 Shutdown signal received. Flushing queues...")
     shutdown_event.set()
 
 
@@ -230,6 +230,8 @@ def indexer_process(
     
     # For alert detection
     error_tracking = defaultdict(lambda: deque(maxlen=100))
+    alerted_ips = {}  # Track which IPs have been alerted: {ip: last_alert_time}
+    alert_cooldown = timedelta(minutes=5)  # Don't re-alert same IP for 5 minutes
     
     try:
         while not shutdown_event.is_set():
@@ -251,8 +253,8 @@ def indexer_process(
                     indexed_count += len(batch)
                     batch.clear()
                     
-                    # Check for alerts
-                    _check_alerts(error_tracking, alert_queue, cursor, conn)
+                    # Check for alerts (with deduplication)
+                    _check_alerts(error_tracking, alert_queue, cursor, conn, alerted_ips, alert_cooldown)
             
             except Exception:
                 # Queue timeout or shutdown
@@ -294,8 +296,12 @@ def _flush_batch(cursor, conn, batch: List[Dict]):
     conn.commit()
 
 
-def _check_alerts(error_tracking: Dict, alert_queue: Queue, cursor, conn):
-    """Check for alert conditions and create alerts."""
+def _check_alerts(error_tracking: Dict, alert_queue: Queue, cursor, conn, 
+                  alerted_ips: Dict, alert_cooldown: timedelta):
+    """
+    Check for alert conditions and create alerts.
+    NOW WITH DEDUPLICATION - won't spam duplicate alerts!
+    """
     now = datetime.now()
     window = timedelta(seconds=60)
     
@@ -304,26 +310,36 @@ def _check_alerts(error_tracking: Dict, alert_queue: Queue, cursor, conn):
         recent_errors = sum(1 for ts in timestamps if now - ts <= window)
         
         if recent_errors >= 5:
-            alert = {
-                'alert_type': 'HIGH_ERROR_RATE',
-                'ip': ip,
-                'count': recent_errors,
-                'window_start': (now - window).isoformat(),
-                'window_end': now.isoformat(),
-                'created_at': now.isoformat()
-            }
+            # Check if we already alerted this IP recently
+            last_alert = alerted_ips.get(ip)
             
-            # Insert alert
-            cursor.execute(
-                """INSERT INTO alerts 
-                   (alert_type, ip, count, window_start, window_end, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (alert['alert_type'], alert['ip'], alert['count'],
-                 alert['window_start'], alert['window_end'], alert['created_at'])
-            )
-            conn.commit()
-            
-            alert_queue.put(alert)
+            if last_alert is None or (now - last_alert) >= alert_cooldown:
+                # Create new alert (not a duplicate)
+                alert = {
+                    'alert_type': 'HIGH_ERROR_RATE',
+                    'ip': ip,
+                    'count': recent_errors,
+                    'window_start': (now - window).isoformat(),
+                    'window_end': now.isoformat(),
+                    'created_at': now.isoformat()
+                }
+                
+                # Insert alert
+                cursor.execute(
+                    """INSERT INTO alerts 
+                       (alert_type, ip, count, window_start, window_end, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (alert['alert_type'], alert['ip'], alert['count'],
+                     alert['window_start'], alert['window_end'], alert['created_at'])
+                )
+                conn.commit()
+                
+                alert_queue.put(alert)
+                
+                # Mark this IP as alerted
+                alerted_ips[ip] = now
+                
+                print(f"🚨 ALERT: {ip} - {recent_errors} suspicious events in 60s window")
 
 
 def metrics_collector(
@@ -511,14 +527,29 @@ def main():
     
     total_events = cursor.execute("SELECT COUNT(*) FROM events").fetchone()[0]
     total_alerts = cursor.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]
+    suspicious_events = cursor.execute("SELECT COUNT(*) FROM events WHERE suspicious = 1").fetchone()[0]
     
     runtime = time.time() - start
     throughput = total_events / runtime if runtime > 0 else 0
     
     print(f"Runtime: {runtime:.1f}s")
     print(f"Total events: {total_events:,}")
+    print(f"Suspicious events: {suspicious_events:,} ({suspicious_events/total_events*100:.1f}%)")
     print(f"Total alerts: {total_alerts}")
     print(f"Throughput: {throughput:.1f} events/sec")
+    
+    # Show alert breakdown
+    if total_alerts > 0:
+        print(f"\n🚨 Alert Breakdown:")
+        cursor.execute("""
+            SELECT ip, COUNT(*) as alert_count, MAX(count) as max_errors
+            FROM alerts 
+            GROUP BY ip 
+            ORDER BY alert_count DESC
+            LIMIT 10
+        """)
+        for row in cursor.fetchall():
+            print(f"   {row[0]}: {row[1]} alerts (max {row[2]} errors in window)")
     
     # Latency statistics
     cursor.execute("""
@@ -532,7 +563,7 @@ def main():
     
     latency_stats = cursor.fetchone()
     if latency_stats and latency_stats[0]:
-        print(f"Avg latency: {latency_stats[0]:.1f}ms")
+        print(f"\nAvg latency: {latency_stats[0]:.1f}ms")
         print(f"Min/Max latency: {latency_stats[1]:.1f}ms / {latency_stats[2]:.1f}ms")
     
     conn.close()

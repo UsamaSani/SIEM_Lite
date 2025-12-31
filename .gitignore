@@ -26,10 +26,6 @@ raw/
 *.log
 !sample_data/*.log
 
-# Results
-results/*
-!results/.gitkeep
-
 # IDE
 .vscode/
 .idea/

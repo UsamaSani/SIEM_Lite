@@ -1,0 +1,9 @@
+{
+  "experiment_count": 6,
+  "peak_throughput": 0.0,
+  "best_config": "w1_r200_b100",
+  "avg_cpu": 0.5166666666666667,
+  "avg_memory_mb": 26.613333333333333,
+  "avg_latency_ms": 8.806799889253272,
+  "p95_latency_ms": 15.857890248298645
+}

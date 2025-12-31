@@ -1,0 +1,26 @@
+[
+  {
+    "exp_id": "w1_r500_b50",
+    "workers": 1,
+    "rate": 500,
+    "batch": 50,
+    "duration": 5,
+    "success": true,
+    "start_time": "2025-12-11T03:16:16.695038",
+    "end_time": "2025-12-11T03:16:29.165225",
+    "db_file": "results/events_w1_r500_b50.db",
+    "metrics_file": "results/metrics_w1_r500_b50.csv"
+  },
+  {
+    "exp_id": "w2_r500_b50",
+    "workers": 2,
+    "rate": 500,
+    "batch": 50,
+    "duration": 5,
+    "success": true,
+    "start_time": "2025-12-11T03:16:29.165952",
+    "end_time": "2025-12-11T03:16:43.453141",
+    "db_file": "results/events_w2_r500_b50.db",
+    "metrics_file": "results/metrics_w2_r500_b50.csv"
+  }
+]

@@ -347,6 +347,7 @@ def metrics_collector(
     parsed_queue: Queue,
     alert_queue: Queue,
     metrics_file: str,
+    db_path: str,
     interval: int = 5
 ):
     """
@@ -357,13 +358,13 @@ def metrics_collector(
         parsed_queue: Parsed queue for size monitoring
         alert_queue: Alert queue for count tracking
         metrics_file: Output CSV file
+        db_path: Path to events database for accurate counts
         interval: Collection interval in seconds
     """
     print(f"[*] Metrics collector starting: interval={interval}s")
     
     process = psutil.Process()
     start_time = time.time()
-    last_event_count = 0
     alerts_count = 0
     
     with open(metrics_file, 'w', newline='') as f:
@@ -394,8 +395,14 @@ def metrics_collector(
                     except:
                         break
                 
-                # Calculate throughput (approximate)
-                current_count = last_event_count + parsed_size
+                # Query database for actual event count (accurate throughput)
+                try:
+                    conn = sqlite3.connect(db_path)
+                    current_count = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+                    conn.close()
+                except:
+                    current_count = 0
+                
                 throughput = current_count / runtime if runtime > 0 else 0
                 
                 writer.writerow([
@@ -412,7 +419,7 @@ def metrics_collector(
                 f.flush()
         
         except Exception as e:
-            print(f"❌ Metrics collector error: {e}")
+            print(f"[ERROR] Metrics collector error: {e}")
         
         finally:
             print(f"[*] Metrics collector finished")
@@ -492,7 +499,7 @@ def main():
     # Metrics collector
     p_metrics = Process(
         target=metrics_collector,
-        args=(ingestion_queue, parsed_queue, alert_queue, args.metrics)
+        args=(ingestion_queue, parsed_queue, alert_queue, args.metrics, args.db)
     )
     p_metrics.start()
     processes.append(p_metrics)
